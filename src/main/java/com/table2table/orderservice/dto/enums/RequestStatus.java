@@ -4,5 +4,6 @@ public enum RequestStatus {
     PENDING,
     ACCEPTED,
     REJECTED,
-    REFUND_INITIATED
+    REFUND_INITIATED,
+    INVENTORY_RESTORED
 }
