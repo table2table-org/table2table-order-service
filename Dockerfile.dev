@@ -1,0 +1,44 @@
+# Multi-stage Dockerfile for Order Service (Development)
+FROM maven:3.9.5-eclipse-temurin-17 AS builder
+
+WORKDIR /app
+COPY pom.xml .
+COPY .mvn .mvn
+COPY mvnw .
+
+# --- FIX ---
+# Mount the secret settings.xml to authenticate and download dependencies.
+RUN --mount=type=secret,id=maven-settings,target=/root/.m2/settings.xml \
+    ./mvnw dependency:go-offline -B
+
+# Copy the rest of the source code
+COPY src ./src
+
+# --- FIX ---
+# Mount the secret again to build the final package.
+# Skipping tests is a best practice for faster, more reliable image builds.
+RUN --mount=type=secret,id=maven-settings,target=/root/.m2/settings.xml \
+    ./mvnw clean package -DskipTests -B
+
+# Runtime stage
+FROM openjdk:17-jdk-slim
+
+ENV SPRING_PROFILES_ACTIVE=dev
+
+LABEL version="dev"
+LABEL description="Table2Table Order Service - Development build"
+
+RUN groupadd -g 1001 appuser && \
+    useradd -u 1001 -g appuser -m appuser
+
+WORKDIR /app
+COPY --from=builder /app/target/*.jar app.jar
+RUN chown appuser:appuser app.jar
+
+USER appuser
+EXPOSE 8086
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8086/actuator/health || exit 1
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
