@@ -110,7 +110,13 @@
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
-
+	<repositories>
+		<repository>
+			<id>github</id>
+			<name>GitHub table2table Apache Maven Packages</name>
+			<url>https://maven.pkg.github.com/table2table-org/table2table-security-lib</url>
+		</repository>
+	</repositories>
 	<build>
 		<plugins>
 			<plugin>
