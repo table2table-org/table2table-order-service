@@ -1,43 +1,55 @@
-# Multi-stage Dockerfile for Order Service (Development)
-FROM maven:3.9.5-eclipse-temurin-17 AS builder
+# Stage 1: The Builder
+FROM maven:3.9-eclipse-temurin-17 AS builder
+
+# Accept build args for GitHub authentication
+ARG GITHUB_USER
+ARG GITHUB_TOKEN
+
+# Expose them as environment variables for Maven
+ENV GITHUB_USER=${GITHUB_USER}
+ENV GITHUB_TOKEN=${GITHUB_TOKEN}
 
 WORKDIR /app
-COPY pom.xml .
-COPY .mvn .mvn
-COPY mvnw .
 
-# --- FIX ---
-# Mount the secret settings.xml to authenticate and download dependencies.
-RUN --mount=type=secret,id=maven-settings,target=/root/.m2/settings.xml \
+# Copy only the files needed to download dependencies for layer caching
+COPY .mvn .mvn
+COPY mvnw pom.xml ./
+
+# Make Maven wrapper executable
+RUN chmod +x ./mvnw
+
+# Mount and decode Maven settings in-container
+RUN --mount=type=secret,id=maven-settings \
+    mkdir -p /root/.m2 && \
+    cat /run/secrets/maven-settings | base64 -d > /root/.m2/settings.xml && \
     ./mvnw dependency:go-offline -B
 
 # Copy the rest of the source code
 COPY src ./src
 
-# --- FIX ---
-# Mount the secret again to build the final package.
-# Skipping tests is a best practice for faster, more reliable image builds.
-RUN --mount=type=secret,id=maven-settings,target=/root/.m2/settings.xml \
+# Build the package skipping tests
+RUN --mount=type=secret,id=maven-settings \
+    cat /run/secrets/maven-settings | base64 -d > /root/.m2/settings.xml && \
     ./mvnw clean package -DskipTests -B
 
-# Runtime stage
+# Stage 2: The Runtime Image
 FROM openjdk:17-jdk-slim
 
 ENV SPRING_PROFILES_ACTIVE=dev
-
 LABEL version="dev"
 LABEL description="Table2Table Order Service - Development build"
 
-RUN groupadd -g 1001 appuser && \
-    useradd -u 1001 -g appuser -m appuser
-
+# Create non-root user
+RUN groupadd -g 1001 appuser && useradd -u 1001 -g appuser -m appuser
 WORKDIR /app
+
+# Copy built JAR and set ownership
 COPY --from=builder /app/target/*.jar app.jar
 RUN chown appuser:appuser app.jar
-
 USER appuser
-EXPOSE 8086
 
+# Expose port and healthcheck
+EXPOSE 8086
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8086/actuator/health || exit 1
 
